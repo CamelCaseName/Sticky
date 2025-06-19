@@ -36,4 +36,5 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 [assembly: MelonInfo(typeof(Sticky.Sticky), "Sticky", "1.0.0", "Lenny")]
+[assembly: MelonColor(255,255,0,50)]
 [assembly: MelonGame("Eek", "House Party")]
