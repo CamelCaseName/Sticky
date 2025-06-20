@@ -2,19 +2,21 @@
 using Il2Cpp;
 using Il2CppEekCharacterEngine;
 using MelonLoader;
-using System;
 using UnityEngine;
-using UnityEngine.Rendering.HighDefinition;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace Sticky
 {
     public class Sticky : MelonMod
     {
-        MelonPreferences_Entry<bool>? ManualOverride;
+        static MelonPreferences_Entry<bool>? ManualOverride;
+        static private MelonPreferences_Entry<bool>? UIVisible;
+        static public bool LockCursor => UIVisible?.Value ?? false;
         static private GameObject? CanvasGO;
         static private Canvas? canvas;
         static private Dropdown? dropdown;
+        static private PlayerCharacter? player = null;
 
         public enum BodyPart
         {
@@ -45,10 +47,62 @@ namespace Sticky
         private static string selectedCharacter = "Player";
         private static bool builtUI = false;
 
+        public override void OnUpdate()
+        {
+            if (UIVisible is null)
+            {
+                return;
+            }
+            if (Keyboard.current.altKey.isPressed && Keyboard.current.digit2Key.wasPressedThisFrame)
+            {
+                UIVisible.Value = !UIVisible.Value;
+                CanvasGO?.SetActive(UIVisible.Value);
+
+                ToggleCursorPlayerLock();
+            }
+
+            if (LockCursor)
+            {
+                ToggleCursorPlayerLock();
+            }
+        }
+
+        private static void ToggleCursorPlayerLock()
+        {
+            if (player is null)
+            {
+                return;
+            }
+
+            if (player._controlManager is null)
+            {
+                return;
+            }
+
+            if (player._controlManager.PlayerInput is null)
+            {
+                return;
+            }
+
+            if (UIVisible?.Value ?? false)
+            {
+                player._controlManager.PlayerInput.DeactivateInput();
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else
+            {
+                player._controlManager.PlayerInput.ActivateInput();
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+        }
+
         public override void OnInitializeMelon()
         {
             var category = MelonPreferences.CreateCategory("Sticky");
             ManualOverride = category.CreateEntry("manual_override", false, "Manual Override", description: "Set this to True so you can decide what parts are covered in jizz");
+            UIVisible = category.CreateEntry("uivisible", true, "UI Visible", description: "Toggles the UI on or off");
             MelonPreferences.Save();
         }
 
@@ -66,6 +120,8 @@ namespace Sticky
 
             PlayerCharacter.OnPlayerLateStart += new Action(() => { GetAllCharactersMeshes(); });
             CharacterManager.OnCharacterEnabled += new Action<CharacterBase>((CharacterBase character) => { GetAllCharactersMeshes(); });
+
+            player = UnityEngine.Object.FindObjectOfType<PlayerCharacter>();
         }
 
         private static int P(int percentage)
@@ -84,10 +140,13 @@ namespace Sticky
             };
             canvas = CanvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
             CanvasScaler scaler = CanvasGO.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPhysicalSize;
             _ = CanvasGO.AddComponent<GraphicRaycaster>();
-            _ = UIBuilder.CreatePanel("Sticky UI Container", CanvasGO, new(0.2f, 0.3f), new(0, Screen.height * 0.2f), out GameObject contentHolder);
+            //todo fiddle around with position and scale? its somehow different than the others
+            _ = UIBuilder.CreatePanel("Sticky UI Container", CanvasGO, new(0.3f, 0.6f), new(0, 200), out GameObject contentHolder);
+            UIBuilder.SetLayoutGroup<VerticalLayoutGroup>(contentHolder);
 
             var layout = UIBuilder.CreateUIObject("Control buttons", contentHolder);
             //set lower min height on layout group
@@ -102,9 +161,11 @@ namespace Sticky
                     buttons[part].SetIsOnWithoutNotify(gameState[selectedCharacter][part]);
                 }
             });
+            UIBuilder.SetLayoutElement(dropdown.gameObject, minHeight: 23, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
 
-            var zoneLabel = UIBuilder.CreateLabel(layout, "zones", "");
-            zoneLabel.fontSize = 14;
+            var zoneLabel = UIBuilder.CreateLabel(contentHolder, "Zones:", "Zones:");
+            UIBuilder.SetLayoutElement(zoneLabel.gameObject, minHeight: 14, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
+            zoneLabel.fontSize = 12;
 
             UpdateDropdownCharacters();
 
@@ -121,6 +182,7 @@ namespace Sticky
                     MelonLogger.Msg($"toggled {selectedCharacter}'s {localPart} {(value ? "on" : "off")}");
                     materials[selectedCharacter].SetFloat(localPart, value ? 1 : 0);
                 }));
+                UIBuilder.SetLayoutElement(toggle.gameObject, minHeight: 8, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
             }
         }
 
@@ -250,6 +312,31 @@ namespace Sticky
         public static float GetFloat(this Material mat, Sticky.BodyPart part)
         {
             return mat.GetFloat(part.ToString());
+        }
+    }
+
+    [HarmonyLib.HarmonyPatch(typeof(Cursor), "set_visible")]
+    public static class CursorVisiblePatch
+    {
+        public static bool Prefix(ref bool value)
+        {
+            if (Sticky.LockCursor)
+            {
+                value = true;
+            }
+            return true;
+        }
+    }
+    [HarmonyLib.HarmonyPatch(typeof(Cursor), "set_lockState")]
+    public static class CursorLockstatePatch
+    {
+        public static bool Prefix(ref CursorLockMode value)
+        {
+            if (Sticky.LockCursor)
+            {
+                value = CursorLockMode.None;
+            }
+            return true;
         }
     }
 }
