@@ -5,13 +5,17 @@ using MelonLoader;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using static Sticky.Sticky;
 
 namespace Sticky
 {
+    public sealed class ZoneContainer : Dictionary<string, Dictionary<BodyPart, bool>> { }
+
     public class Sticky : MelonMod
     {
-        static MelonPreferences_Entry<bool>? ManualOverride;
+        static private MelonPreferences_Entry<bool>? Persistance;
         static private MelonPreferences_Entry<bool>? UIVisible;
+        static private ZoneContainer config = new();
         static public bool LockCursor => UIVisible?.Value ?? false;
         static private GameObject? CanvasGO;
         static private Canvas? canvas;
@@ -40,12 +44,16 @@ namespace Sticky
 
         }
 
-        private static readonly Dictionary<string, Dictionary<BodyPart, bool>> config = new();
-        private static readonly Dictionary<string, Dictionary<BodyPart, bool>> gameState = new();
+        private static readonly ZoneContainer gameState = new();
         private static readonly Dictionary<BodyPart, Toggle> buttons = new();
         private static readonly Dictionary<string, Material> materials = new();
         private static string selectedCharacter = "Player";
         private static bool builtUI = false;
+        private static bool InGameMain = false;
+        private static float timeAccumulated = 0;
+        private static int characterUpdateTracker = 0;
+        private static Color defaultColor = new(0.1f, 0.1f, 0.1f);
+        private static ColorBlock buttonColor = new() { normalColor = defaultColor, highlightedColor = defaultColor * 1.2f, pressedColor = defaultColor * 0.8f, colorMultiplier = 1 };
 
         public override void OnUpdate()
         {
@@ -53,17 +61,49 @@ namespace Sticky
             {
                 return;
             }
-            if (Keyboard.current.altKey.isPressed && Keyboard.current.digit2Key.wasPressedThisFrame)
+
+            if (InGameMain && Keyboard.current.altKey.isPressed && Keyboard.current.digit2Key.wasPressedThisFrame)
             {
                 UIVisible.Value = !UIVisible.Value;
                 CanvasGO?.SetActive(UIVisible.Value);
 
                 ToggleCursorPlayerLock();
             }
+            else if (!InGameMain)
+            {
+                UIVisible.Value = false;
+            }
 
             if (LockCursor)
             {
                 ToggleCursorPlayerLock();
+            }
+
+            timeAccumulated += Time.deltaTime;
+            if(timeAccumulated > 1)
+            {
+                timeAccumulated = 0;
+
+                if (!InGameMain)
+                {
+                    return;
+                }
+
+                UpdateGameState();
+                if (Persistance!.Value)
+                {
+                    TryAddGameToConfigState();
+                }
+
+                if (characterUpdateTracker < 0 || characterUpdateTracker >= dropdown!.options.Count)
+                {
+                    characterUpdateTracker = 0;
+                }
+                string character = dropdown!.options[characterUpdateTracker].text ?? "Player";
+
+                characterUpdateTracker++;
+
+                SetSingleConfigToGameState(character);
             }
         }
 
@@ -101,14 +141,21 @@ namespace Sticky
         public override void OnInitializeMelon()
         {
             var category = MelonPreferences.CreateCategory("Sticky");
-            ManualOverride = category.CreateEntry("manual_override", false, "Manual Override", description: "Set this to True so you can decide what parts are covered in jizz");
+            Persistance = category.CreateEntry("persistance", false, "Persistance", description: "Set this to True to keep game added cum present");
             UIVisible = category.CreateEntry("uivisible", true, "UI Visible", description: "Toggles the UI on or off");
-            MelonPreferences.Save();
+
+            PlayerCharacter.OnPlayerLateStart += new Action(() => { GetAllCharactersMeshes(); });
+            CharacterManager.OnCharacterEnabled += new Action<CharacterBase>((CharacterBase character) => { GetAllCharactersMeshes(); });
+            CharacterManager.OnCharacterDisabled += new Action<CharacterBase>((CharacterBase character) => { GetAllCharactersMeshes(); });
+
+            //load config
         }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
-            if (sceneName != "GameMain")
+            //MelonPreferences.Save();
+            InGameMain = sceneName == "GameMain";
+            if (!InGameMain)
             {
                 return;
             }
@@ -117,9 +164,6 @@ namespace Sticky
             materials.Clear();
             buttons.Clear();
             gameState.Clear();
-
-            PlayerCharacter.OnPlayerLateStart += new Action(() => { GetAllCharactersMeshes(); });
-            CharacterManager.OnCharacterEnabled += new Action<CharacterBase>((CharacterBase character) => { GetAllCharactersMeshes(); });
 
             player = UnityEngine.Object.FindObjectOfType<PlayerCharacter>();
         }
@@ -144,22 +188,30 @@ namespace Sticky
             CanvasScaler scaler = CanvasGO.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPhysicalSize;
             _ = CanvasGO.AddComponent<GraphicRaycaster>();
-            //todo fiddle around with position and scale? its somehow different than the others
-            _ = UIBuilder.CreatePanel("Sticky UI Container", CanvasGO, new(0.3f, 0.6f), new(0, 200), out GameObject contentHolder);
+
+            _ = UIBuilder.CreatePanel("Sticky UI Container", CanvasGO, new(0.18f, 0.7f), new(0, 200), out GameObject contentHolder);
             UIBuilder.SetLayoutGroup<VerticalLayoutGroup>(contentHolder);
 
-            var layout = UIBuilder.CreateUIObject("Control buttons", contentHolder);
-            //set lower min height on layout group
-            _ = UIBuilder.SetLayoutGroup<HorizontalLayoutGroup>(layout, true, true, padTop: 2, padLeft: 2, padRight: 2, padBottom: 2);
-
-            _ = UIBuilder.CreateDropdown(layout, "character selection", out dropdown, "Player", 14, (int index) =>
+            UIBuilder.CreateToggle(contentHolder, "Cum Persistance", out Toggle persistanceToggle, out _);
+            persistanceToggle.onValueChanged.AddListener(new Action<bool>((bool state) =>
             {
-                selectedCharacter = dropdown?.options[index].m_Text ?? "Player";
-                MelonLogger.Msg("selected " + selectedCharacter);
-                foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
-                {
-                    buttons[part].SetIsOnWithoutNotify(gameState[selectedCharacter][part]);
-                }
+                Persistance!.Value = state;
+            }));
+            persistanceToggle.Set(Persistance!.Value);
+
+            var resetButton = UIBuilder.CreateButton(contentHolder, "reset", "Reset", buttonColor);
+            UIBuilder.SetLayoutElement(resetButton, minHeight: 16, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
+            resetButton.GetComponent<Button>().colors = buttonColor;
+            resetButton.GetComponent<Button>().onClick.AddListener(new Action(() => ResetStates()));
+
+            var allButton = UIBuilder.CreateButton(contentHolder, "all", "Cum everywhere", buttonColor);
+            UIBuilder.SetLayoutElement(allButton, minHeight: 16, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
+            allButton.GetComponent<Button>().colors = buttonColor;
+            allButton.GetComponent<Button>().onClick.AddListener(new Action(() => TurnOnAll()));
+
+            _ = UIBuilder.CreateDropdown(contentHolder, "character selection", out dropdown, "Player", 14, (int index) =>
+            {
+                UpdateButtonsToSelectedCharacter(index);
             });
             UIBuilder.SetLayoutElement(dropdown.gameObject, minHeight: 23, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
 
@@ -171,19 +223,64 @@ namespace Sticky
 
             foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
             {
-                MelonLogger.Msg("creating toggle for " + part);
+                //MelonLogger.Msg("creating toggle for " + part);
                 UIBuilder.CreateToggle(contentHolder, part.ToString()[1..].Replace('_', ' '), out Toggle toggle, out _);
                 buttons.Add(part, toggle);
                 toggle.SetIsOnWithoutNotify(gameState[selectedCharacter][part]);
                 toggle.onValueChanged.AddListener(new Action<bool>((bool value) =>
                 {
                     var localPart = part;
-                    gameState[selectedCharacter][localPart] = value;
-                    MelonLogger.Msg($"toggled {selectedCharacter}'s {localPart} {(value ? "on" : "off")}");
-                    materials[selectedCharacter].SetFloat(localPart, value ? 1 : 0);
+                    config[selectedCharacter][localPart] = value;
+                    materials[selectedCharacter].SetFloat(localPart, value);
                 }));
                 UIBuilder.SetLayoutElement(toggle.gameObject, minHeight: 8, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
             }
+        }
+
+        private static void TurnOnAll()
+        {
+            if (dropdown is null)
+            {
+                return;
+            }
+
+            foreach (var key in config.Keys)
+            {
+                foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+                {
+                    config[key][part] = true;
+                }
+            }
+            SetConfigToGameState();
+            UpdateButtonsToSelectedCharacter(dropdown.m_CurrentIndex);
+        }
+
+        private static void UpdateButtonsToSelectedCharacter(int index)
+        {
+            selectedCharacter = dropdown?.options[index].m_Text ?? "Player";
+            //MelonLogger.Msg("selected " + selectedCharacter);
+            foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+            {
+                buttons[part].SetIsOnWithoutNotify(config[selectedCharacter][part]);
+            }
+        }
+
+        private static void ResetStates()
+        {
+            if (dropdown is null)
+            {
+                return;
+            }
+
+            foreach (var key in config.Keys)
+            {
+                foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+                {
+                    config[key][part] = false;
+                }
+            }
+            SetConfigToGameState();
+            UpdateButtonsToSelectedCharacter(dropdown.m_CurrentIndex);
         }
 
         private static void UpdateDropdownCharacters()
@@ -201,7 +298,14 @@ namespace Sticky
                     dropdown.value = 0;
                 }
                 dropdown.RefreshShownValue();
-                selectedCharacter = dropdown.options[dropdown.value].text ?? "Player";
+                if (dropdown.options.Count > 0)
+                {
+                    selectedCharacter = dropdown.options[dropdown.value].text ?? "Player";
+                }
+                else
+                {
+                    selectedCharacter = "Player";
+                }
             }
         }
 
@@ -210,6 +314,11 @@ namespace Sticky
         {
             gameState.Clear();
             materials.Clear();
+
+            if (!InGameMain)
+            {
+                return;
+            }
 
             foreach (var character in CharacterManager.GetCharacters())
             {
@@ -233,7 +342,7 @@ namespace Sticky
                     {
                         if (materials.TryAdd(character.Name, material))
                         {
-                            MelonLogger.Msg("added " + character.Name + "s material");
+                            //MelonLogger.Msg("added " + character.Name + "s material");
                         }
                         break;
                         //material.SetFloat(BodyPart._Face, 1.0f);
@@ -258,6 +367,7 @@ namespace Sticky
             }
 
             UpdateGameState();
+            SetGameToConfigState();
 
             if (!builtUI)
             {
@@ -286,28 +396,74 @@ namespace Sticky
             {
                 s += character + ", ";
             }
-            MelonLogger.Msg(s);
+            //MelonLogger.Msg(s);
         }
 
         private static void SetGameToConfigState()
         {
-            //todo
+
+            foreach (var key in gameState.Keys)
+            {
+                //MelonLogger.Msg("adding copnfig for " + key);
+                config.TryAdd(key, new());
+                foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+                {
+                    config[key][part] = gameState[key][part];
+                }
+            }
+        }
+
+        private static void TryAddGameToConfigState()
+        {
+            bool changed = false;
             foreach (var mat in materials)
             {
                 foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
                 {
                     float val = mat.Value.GetFloat(part);
-                    gameState[mat.Key][part] = val > 0;
+                    if (val > 0)
+                    {
+                        config[mat.Key][part] = true;
+                        changed = true;
+                    }
                 }
+            }
+
+            if (changed)
+            {
+                UpdateButtonsToSelectedCharacter(dropdown!.m_CurrentIndex);
+            }
+        }
+
+        private static void SetConfigToGameState()
+        {
+            //MelonLogger.Msg("pushing config to game");
+            foreach (var mat in materials)
+            {
+                foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+                {
+                    //MelonLogger.Msg($"{mat.Key} {part} -> {(config[mat.Key][part] ? "on" : "off")}");
+                    mat.Value.SetFloat(part, config[mat.Key][part]);
+                }
+            }
+        }
+
+        private static void SetSingleConfigToGameState(string character)
+        {
+            //MelonLogger.Msg("pushing config to game");
+            foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
+            {
+                //MelonLogger.Msg($"{character} {part} -> {(config[character][part] ? "on" : "off")}");
+                materials[character].SetFloat(part, config[character][part]);
             }
         }
     }
 
     public static class Extender
     {
-        public static void SetFloat(this Material mat, Sticky.BodyPart part, float f)
+        public static void SetFloat(this Material mat, Sticky.BodyPart part, bool f)
         {
-            mat.SetFloat(part.ToString(), f);
+            mat.SetFloat(part.ToString(), f ? 1 : 0);
         }
         public static float GetFloat(this Material mat, Sticky.BodyPart part)
         {
