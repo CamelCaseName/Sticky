@@ -1,8 +1,8 @@
-# PS1Party
-##### Turns House Party into a PS1 game. somewhat.
+# Sticky
+##### Keeps bodily fluids :sweat_drops: around for longer :D
 <hr>
 
-Get it [here](https://github.com/CamelCaseName/PS1Party/releases/latest). 
+Get it [here](https://github.com/CamelCaseName/Sticky/releases/latest). 
 
 ## QuickStart MelonLoader
 
@@ -20,3 +20,11 @@ After this the installation directory of the game should contain a new folder ca
 Then Move the downloaded `.dll` into this folder and start the game.
 
 Refer to [this document here](https://github.com/0x78f1935/HPMods) for further info on modding House Party.
+
+## Features
+- make Cum persistent
+- toggle each zone for each loaded character manually
+- reset all spots
+- toggle all spots on for everyone
+
+## Screenshots
