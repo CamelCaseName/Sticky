@@ -13,14 +13,6 @@ namespace Sticky
 
     public class Sticky : MelonMod
     {
-        static private MelonPreferences_Entry<bool>? Persistance;
-        static private MelonPreferences_Entry<bool>? UIVisible;
-        static private ZoneContainer config = new();
-        static public bool LockCursor => UIVisible?.Value ?? false;
-        static private GameObject? CanvasGO;
-        static private Canvas? canvas;
-        static private Dropdown? dropdown;
-        static private PlayerCharacter? player = null;
 
         public enum BodyPart
         {
@@ -44,16 +36,24 @@ namespace Sticky
 
         }
 
-        private static readonly ZoneContainer gameState = new();
-        private static readonly Dictionary<BodyPart, Toggle> buttons = new();
-        private static readonly Dictionary<string, Material> materials = new();
-        private static string selectedCharacter = "Player";
         private static bool builtUI = false;
         private static bool InGameMain = false;
-        private static float timeAccumulated = 0;
-        private static int characterUpdateTracker = 0;
+        private static Canvas? canvas;
         private static Color defaultColor = new(0.1f, 0.1f, 0.1f);
         private static ColorBlock buttonColor = new() { normalColor = defaultColor, highlightedColor = defaultColor * 1.2f, pressedColor = defaultColor * 0.8f, colorMultiplier = 1 };
+        private static Dropdown? dropdown;
+        private static float timeAccumulated = 0;
+        private static GameObject? CanvasGO;
+        private static int characterUpdateTracker = 0;
+        private static MelonPreferences_Entry<bool>? Persistance;
+        private static MelonPreferences_Entry<bool>? UIVisible;
+        private static PlayerCharacter? player = null;
+        private static readonly Dictionary<BodyPart, Toggle> buttons = new();
+        private static readonly Dictionary<string, Material> materials = new();
+        private static readonly ZoneContainer config = new();
+        private static readonly ZoneContainer gameState = new();
+        private static string selectedCharacter = "Player";
+        public static bool LockCursor => UIVisible?.Value ?? false;
 
         public override void OnUpdate()
         {
@@ -142,7 +142,7 @@ namespace Sticky
         {
             var category = MelonPreferences.CreateCategory("Sticky");
             Persistance = category.CreateEntry("persistance", false, "Persistance", description: "Set this to True to keep game added cum present");
-            UIVisible = category.CreateEntry("uivisible", true, "UI Visible", description: "Toggles the UI on or off");
+            UIVisible = category.CreateEntry("uivisible", false, "UI Visible", description: "Toggles the UI on or off");
 
             PlayerCharacter.OnPlayerLateStart += new Action(() => { GetAllCharactersMeshes(); });
             CharacterManager.OnCharacterEnabled += new Action<CharacterBase>((CharacterBase character) => { GetAllCharactersMeshes(); });
@@ -483,6 +483,7 @@ namespace Sticky
             return true;
         }
     }
+
     [HarmonyLib.HarmonyPatch(typeof(Cursor), "set_lockState")]
     public static class CursorLockstatePatch
     {
