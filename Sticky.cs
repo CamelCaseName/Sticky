@@ -2,6 +2,8 @@
 using Il2Cpp;
 using Il2CppEekCharacterEngine;
 using MelonLoader;
+using System.Reflection;
+using System.Runtime.Loader;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
@@ -13,7 +15,6 @@ namespace Sticky
 
     public class Sticky : MelonMod
     {
-
         public enum BodyPart
         {
             _Face,
@@ -44,7 +45,6 @@ namespace Sticky
         private static Dropdown? dropdown;
         private static float timeAccumulated = 0;
         private static GameObject? CanvasGO;
-        private static int characterUpdateTracker = 0;
         private static MelonPreferences_Entry<bool>? Persistance;
         private static MelonPreferences_Entry<bool>? UIVisible;
         private static PlayerCharacter? player = null;
@@ -55,6 +55,81 @@ namespace Sticky
         private static string selectedCharacter = "Player";
         public static bool LockCursor => UIVisible?.Value ?? false;
 
+        static Sticky()
+        {
+            SetOurResolveHandlerAtFront();
+        }
+
+        private static Assembly AssemblyResolveEventListener(object sender, ResolveEventArgs args)
+        {
+            if (args is null)
+            {
+                return null!;
+            }
+            string name = "Audio.Resources." + args.Name[..args.Name.IndexOf(',')] + ".dll";
+
+            using Stream? str = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
+            if (str is not null)
+            {
+                var context = new AssemblyLoadContext(name, false);
+                string path = Path.Combine(Directory.GetParent(Assembly.GetExecutingAssembly()?.Location!)!.Parent!.FullName, "UserLibs", args.Name[..args.Name.IndexOf(',')] + ".dll");
+                FileStream fstr = new(path, FileMode.Create);
+                str.CopyTo(fstr);
+                fstr.Close();
+                str.Position = 0;
+
+                var asm = context.LoadFromStream(str);
+                MelonLogger.Warning($"Loaded {asm.FullName} from our embedded resources, saving to userlibs for next time");
+
+                return asm;
+            }
+            return null!;
+        }
+
+        private static void SetOurResolveHandlerAtFront()
+        {
+            //MelonLogger.Msg("setting our resolvehandler");
+            BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
+            FieldInfo? field = null;
+
+            Type domainType = typeof(AssemblyLoadContext);
+
+            while (field is null)
+            {
+                if (domainType is not null)
+                {
+                    field = domainType.GetField("AssemblyResolve", flags);
+                }
+                else
+                {
+                    //MelonDebug.Error("domainType got set to null for the AssemblyResolve event was null");
+                    return;
+                }
+                if (field is null)
+                {
+                    domainType = domainType.BaseType!;
+                }
+            }
+
+            var resolveDelegate = (MulticastDelegate)field.GetValue(null)!;
+            Delegate[] subscribers = resolveDelegate.GetInvocationList();
+
+            Delegate currentDelegate = resolveDelegate;
+            for (int i = 0; i < subscribers.Length; i++)
+            {
+                currentDelegate = System.Delegate.RemoveAll(currentDelegate, subscribers[i])!;
+            }
+
+            var newSubscriptions = new Delegate[subscribers.Length + 1];
+            newSubscriptions[0] = (ResolveEventHandler)AssemblyResolveEventListener!;
+            System.Array.Copy(subscribers, 0, newSubscriptions, 1, subscribers.Length);
+
+            currentDelegate = Delegate.Combine(newSubscriptions)!;
+
+            field.SetValue(null, currentDelegate);
+
+            //MelonLogger.Msg("set our resolvehandler");
+        }
         public override void OnUpdate()
         {
             if (UIVisible is null)
@@ -80,7 +155,7 @@ namespace Sticky
             }
 
             timeAccumulated += Time.deltaTime;
-            if(timeAccumulated > 1)
+            if (timeAccumulated > 1)
             {
                 timeAccumulated = 0;
 
@@ -95,15 +170,7 @@ namespace Sticky
                     TryAddGameToConfigState();
                 }
 
-                if (characterUpdateTracker < 0 || characterUpdateTracker >= dropdown!.options.Count)
-                {
-                    characterUpdateTracker = 0;
-                }
-                string character = dropdown!.options[characterUpdateTracker].text ?? "Player";
-
-                characterUpdateTracker++;
-
-                SetSingleConfigToGameState(character);
+                SetConfigToGameState();
             }
         }
 
@@ -136,6 +203,11 @@ namespace Sticky
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
             }
+        }
+
+        public override void OnDeinitializeMelon()
+        {
+            MelonPreferences.Save();
         }
 
         public override void OnInitializeMelon()
@@ -211,6 +283,7 @@ namespace Sticky
 
             _ = UIBuilder.CreateDropdown(contentHolder, "character selection", out dropdown, "Player", 14, (int index) =>
             {
+                selectedCharacter = dropdown!.options[index].m_Text ?? "Player";
                 UpdateButtonsToSelectedCharacter(index);
             });
             UIBuilder.SetLayoutElement(dropdown.gameObject, minHeight: 23, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
@@ -231,6 +304,7 @@ namespace Sticky
                 {
                     var localPart = part;
                     config[selectedCharacter][localPart] = value;
+                    gameState[selectedCharacter][localPart] = value;
                     materials[selectedCharacter].SetFloat(localPart, value);
                 }));
                 UIBuilder.SetLayoutElement(toggle.gameObject, minHeight: 8, minWidth: P(3), flexibleHeight: 0, flexibleWidth: 0);
@@ -257,7 +331,6 @@ namespace Sticky
 
         private static void UpdateButtonsToSelectedCharacter(int index)
         {
-            selectedCharacter = dropdown?.options[index].m_Text ?? "Player";
             //MelonLogger.Msg("selected " + selectedCharacter);
             foreach (BodyPart part in Enum.GetValues(typeof(BodyPart)))
             {
@@ -373,6 +446,7 @@ namespace Sticky
             {
                 builtUI = true;
                 BuildUI();
+                CanvasGO?.SetActive(UIVisible!.Value);
             }
             else
             {
