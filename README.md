@@ -22,9 +22,13 @@ Then Move the downloaded `.dll` into this folder and start the game.
 Refer to [this document here](https://github.com/0x78f1935/HPMods) for further info on modding House Party.
 
 ## Features
+- toggle UI with ALT + 2
 - make Cum persistent
 - toggle each zone for each loaded character manually
 - reset all spots
 - toggle all spots on for everyone
 
 ## Screenshots
+<img width="345" height="755" alt="image" src="https://github.com/user-attachments/assets/f77515a3-e11c-42d0-b4e3-654b91f84023" />
+<img width="1113" height="1022" alt="image" src="https://github.com/user-attachments/assets/242e6ed3-e7f2-4b14-bdce-45e8966bbb55" />
+<img width="1101" height="1020" alt="image" src="https://github.com/user-attachments/assets/e84f197d-a18c-42a8-93fb-958ba433c275" />
