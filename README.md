@@ -17,7 +17,7 @@ Make sure you have installed the game and at least started the game once before 
 6. Click the INSTALL or RE-INSTALL button.
 
 After this the installation directory of the game should contain a new folder called `Mods`.
-Then Move the downloaded `.dll` into this folder and start the game.
+Then Move the downloaded `Sticky.dll` into this folder and start the game.
 
 Refer to [this document here](https://github.com/0x78f1935/HPMods) for further info on modding House Party.
 
