@@ -66,7 +66,7 @@ namespace Sticky
             {
                 return null!;
             }
-            string name = "Audio.Resources." + args.Name[..args.Name.IndexOf(',')] + ".dll";
+            string name = "Sticky.Resources." + args.Name[..args.Name.IndexOf(',')] + ".dll";
 
             using Stream? str = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
             if (str is not null)
@@ -130,6 +130,7 @@ namespace Sticky
 
             //MelonLogger.Msg("set our resolvehandler");
         }
+       
         public override void OnUpdate()
         {
             if (UIVisible is null)
